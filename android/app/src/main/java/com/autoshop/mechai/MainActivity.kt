@@ -1,14 +1,18 @@
 package com.autoshop.mechai
 
 import android.os.Bundle
+import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -32,6 +36,7 @@ private fun parseDtcs(raw: String): List<ObdCode> = raw
 @Composable
 fun AutoShopScreen() {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     var firstName by remember { mutableStateOf("") }
     var lastName by remember { mutableStateOf("") }
@@ -47,6 +52,7 @@ fun AutoShopScreen() {
     var dtcs by remember { mutableStateOf("") }
     var technicianNotes by remember { mutableStateOf("") }
     var diagnosis by remember { mutableStateOf<DiagnosticResponse?>(null) }
+    var xtoolImport by remember { mutableStateOf<XtoolImportResult?>(null) }
 
     var lineType by remember { mutableIntStateOf(0) }
     var lineDescription by remember { mutableStateOf("") }
@@ -72,6 +78,26 @@ fun AutoShopScreen() {
             } finally {
                 busy = false
             }
+        }
+    }
+
+    val xtoolCsvPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val ro = repairOrder ?: return@rememberLauncherForActivityResult
+        launchTask("Importing XTOOL D7 recording…") {
+            val resolver = context.contentResolver
+            val sourceName = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
+            } ?: "XTOOL CSV"
+            val text = resolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                ?: error("Unable to read selected CSV")
+            val parsed = XtoolCsvParser.parse(text, sourceName)
+            val scan = parsed.scan.copy(vin = parsed.scan.vin ?: ro.vehicle.vin)
+            repairOrder = ApiClient.api.attachObdScan(ro.id, scan)
+            xtoolImport = parsed.copy(scan = scan)
+            dtcs = scan.dtcs.joinToString(", ") { it.code }
+            status = "XTOOL imported: ${parsed.liveValueCount} live values, ${scan.dtcs.size} DTCs"
         }
     }
 
@@ -151,6 +177,8 @@ fun AutoShopScreen() {
                                     odometer_in = odometer.toIntOrNull(),
                                 )
                             )
+                            xtoolImport = null
+                            diagnosis = null
                             status = "Repair order ${repairOrder?.ro_number ?: "created"}"
                         }
                     }
@@ -176,6 +204,31 @@ fun AutoShopScreen() {
             }
 
             SectionCard("3. OBD evidence & AI diagnosis") {
+                Button(
+                    enabled = !busy && repairOrder != null,
+                    onClick = { xtoolCsvPicker.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain", "application/octet-stream")) },
+                ) { Text("Import XTOOL D7 CSV") }
+
+                Text(
+                    "On the D7, export/share a CSV recording, transfer it to this device over Bluetooth or Wi-Fi, then select it here.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+
+                xtoolImport?.let { imported ->
+                    ElevatedCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("XTOOL recording attached", fontWeight = FontWeight.Bold)
+                            Text(imported.sourceName, style = MaterialTheme.typography.bodySmall)
+                            Text("${imported.rowCount} rows • ${imported.liveValueCount} live values • ${imported.scan.dtcs.size} DTCs")
+                            imported.scan.vin?.let { Text("VIN $it", style = MaterialTheme.typography.bodySmall) }
+                            imported.scan.live_data.entries
+                                .filterNot { it.key.startsWith("_") }
+                                .take(8)
+                                .forEach { (name, value) -> Text("$name: $value", style = MaterialTheme.typography.bodySmall) }
+                        }
+                    }
+                }
+
                 OutlinedTextField(dtcs, { dtcs = it.uppercase() }, label = { Text("DTCs (P0300, P0171…)") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(
                     technicianNotes,
@@ -190,11 +243,19 @@ fun AutoShopScreen() {
                         onClick = {
                             val ro = repairOrder ?: return@Button
                             launchTask("Attaching diagnostic evidence…") {
-                                val scan = ObdScan(
-                                    vin = ro.vehicle.vin,
-                                    dongle_model = "manual / ELM327",
-                                    dtcs = parseDtcs(dtcs),
-                                )
+                                val existing = repairOrder?.obd_scan
+                                val scan = if (existing != null) {
+                                    existing.copy(
+                                        dtcs = parseDtcs(dtcs),
+                                        vin = existing.vin ?: ro.vehicle.vin,
+                                    )
+                                } else {
+                                    ObdScan(
+                                        vin = ro.vehicle.vin,
+                                        dongle_model = "manual / ELM327",
+                                        dtcs = parseDtcs(dtcs),
+                                    )
+                                }
                                 repairOrder = ApiClient.api.attachObdScan(ro.id, scan)
                                 repairOrder = ApiClient.api.patchRepairOrder(
                                     ro.id,
@@ -210,6 +271,12 @@ fun AutoShopScreen() {
                         onClick = {
                             val ro = repairOrder ?: return@Button
                             launchTask("AI diagnostic analysis…") {
+                                if (technicianNotes.isNotBlank()) {
+                                    repairOrder = ApiClient.api.patchRepairOrder(
+                                        ro.id,
+                                        RepairOrderPatch(technician_notes = technicianNotes.trim())
+                                    )
+                                }
                                 diagnosis = ApiClient.api.diagnoseRepairOrder(ro.id)
                                 repairOrder = ApiClient.api.repairOrder(ro.id)
                                 status = "Diagnosis complete"
