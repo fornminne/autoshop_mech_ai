@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "AutoShopMechAI"
 include(":app")
+include(":d7inspector")
