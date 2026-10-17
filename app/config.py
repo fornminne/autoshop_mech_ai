@@ -10,7 +10,8 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     model_name: str = ""
     nhtsa_base_url: str = "https://vpic.nhtsa.dot.gov/api"
-    database_url: str = "sqlite:///./autoshop.db"
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

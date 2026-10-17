@@ -88,18 +88,18 @@ async def diagnostic_analyze(request: DiagnosticRequest) -> DiagnosticResponse:
 @app.post("/v1/customers", response_model=Customer, status_code=201)
 async def create_customer(request: CustomerCreate) -> Customer:
     customer = Customer(**request.model_dump())
-    save_customer(customer)
+    await save_customer(customer)
     return customer
 
 
 @app.get("/v1/customers", response_model=list[Customer])
 async def customers() -> list[Customer]:
-    return list_customers()
+    return await list_customers()
 
 
 @app.get("/v1/customers/{customer_id}", response_model=Customer)
 async def get_customer(customer_id: UUID) -> Customer:
-    customer = load_customer(customer_id)
+    customer = await load_customer(customer_id)
     if customer is None:
         raise HTTPException(status_code=404, detail="Customer not found")
     return customer
@@ -107,17 +107,17 @@ async def get_customer(customer_id: UUID) -> Customer:
 
 @app.post("/v1/customers/{customer_id}/vehicles", response_model=Customer)
 async def add_customer_vehicle(customer_id: UUID, vehicle: Vehicle) -> Customer:
-    customer = load_customer(customer_id)
+    customer = await load_customer(customer_id)
     if customer is None:
         raise HTTPException(status_code=404, detail="Customer not found")
     customer.vehicles.append(vehicle)
-    save_customer(customer)
+    await save_customer(customer)
     return customer
 
 
 @app.post("/v1/repair-orders", response_model=RepairOrder, status_code=201)
 async def create_repair_order(request: RepairOrderCreate) -> RepairOrder:
-    customer = load_customer(request.customer_id)
+    customer = await load_customer(request.customer_id)
     if customer is None:
         raise HTTPException(status_code=404, detail="Customer not found")
     ro = RepairOrder(
@@ -127,18 +127,18 @@ async def create_repair_order(request: RepairOrderCreate) -> RepairOrder:
         odometer_in=request.odometer_in,
     )
     ro.ro_number = f"RO-{str(ro.id)[:8].upper()}"
-    save_repair_order(ro)
+    await save_repair_order(ro)
     return ro
 
 
 @app.get("/v1/repair-orders", response_model=list[RepairOrder])
 async def repair_orders() -> list[RepairOrder]:
-    return list_repair_orders()
+    return await list_repair_orders()
 
 
 @app.get("/v1/repair-orders/{ro_id}", response_model=RepairOrder)
 async def get_repair_order(ro_id: UUID) -> RepairOrder:
-    ro = load_repair_order(ro_id)
+    ro = await load_repair_order(ro_id)
     if ro is None:
         raise HTTPException(status_code=404, detail="Repair order not found")
     return ro
@@ -146,43 +146,43 @@ async def get_repair_order(ro_id: UUID) -> RepairOrder:
 
 @app.patch("/v1/repair-orders/{ro_id}", response_model=RepairOrder)
 async def patch_repair_order(ro_id: UUID, patch: RepairOrderPatch) -> RepairOrder:
-    ro = load_repair_order(ro_id)
+    ro = await load_repair_order(ro_id)
     if ro is None:
         raise HTTPException(status_code=404, detail="Repair order not found")
     for key, value in patch.model_dump(exclude_none=True).items():
         setattr(ro, key, value)
     ro.updated_at = datetime.now(timezone.utc)
-    save_repair_order(ro)
+    await save_repair_order(ro)
     return ro
 
 
 @app.post("/v1/repair-orders/{ro_id}/lines", response_model=RepairOrder)
 async def add_repair_order_line(ro_id: UUID, line: RepairOrderLine) -> RepairOrder:
-    ro = load_repair_order(ro_id)
+    ro = await load_repair_order(ro_id)
     if ro is None:
         raise HTTPException(status_code=404, detail="Repair order not found")
     if ro.status == RepairOrderStatus.CLOSED:
         raise HTTPException(status_code=409, detail="Closed repair order cannot be modified")
     ro.lines.append(line)
     ro.updated_at = datetime.now(timezone.utc)
-    save_repair_order(ro)
+    await save_repair_order(ro)
     return ro
 
 
 @app.post("/v1/repair-orders/{ro_id}/obd-scan", response_model=RepairOrder)
 async def attach_obd_scan(ro_id: UUID, scan: OBDScan) -> RepairOrder:
-    ro = load_repair_order(ro_id)
+    ro = await load_repair_order(ro_id)
     if ro is None:
         raise HTTPException(status_code=404, detail="Repair order not found")
     ro.obd_scan = scan
     ro.updated_at = datetime.now(timezone.utc)
-    save_repair_order(ro)
+    await save_repair_order(ro)
     return ro
 
 
 @app.post("/v1/repair-orders/{ro_id}/diagnose", response_model=DiagnosticResponse)
 async def diagnose_repair_order(ro_id: UUID) -> DiagnosticResponse:
-    ro = load_repair_order(ro_id)
+    ro = await load_repair_order(ro_id)
     if ro is None:
         raise HTTPException(status_code=404, detail="Repair order not found")
 
@@ -202,16 +202,16 @@ async def diagnose_repair_order(ro_id: UUID) -> DiagnosticResponse:
 
     ro.diagnosis_summary = result.summary
     ro.updated_at = datetime.now(timezone.utc)
-    save_repair_order(ro)
+    await save_repair_order(ro)
     return result
 
 
 @app.post("/v1/invoices", response_model=Invoice, status_code=201)
 async def create_invoice(request: InvoiceCreate) -> Invoice:
-    ro = load_repair_order(request.repair_order_id)
+    ro = await load_repair_order(request.repair_order_id)
     if ro is None:
         raise HTTPException(status_code=404, detail="Repair order not found")
-    customer = load_customer(ro.customer_id)
+    customer = await load_customer(ro.customer_id)
     if customer is None:
         raise HTTPException(status_code=404, detail="Customer not found")
 
@@ -226,18 +226,18 @@ async def create_invoice(request: InvoiceCreate) -> Invoice:
         labor_tax_rate=request.labor_tax_rate,
     )
     invoice.invoice_number = f"INV-{str(invoice.id)[:8].upper()}"
-    save_invoice(invoice)
+    await save_invoice(invoice)
     return invoice
 
 
 @app.get("/v1/invoices", response_model=list[Invoice])
 async def invoices() -> list[Invoice]:
-    return list_invoices()
+    return await list_invoices()
 
 
 @app.get("/v1/invoices/{invoice_id}", response_model=Invoice)
 async def get_invoice(invoice_id: UUID) -> Invoice:
-    invoice = load_invoice(invoice_id)
+    invoice = await load_invoice(invoice_id)
     if invoice is None:
         raise HTTPException(status_code=404, detail="Invoice not found")
     return invoice
@@ -245,13 +245,13 @@ async def get_invoice(invoice_id: UUID) -> Invoice:
 
 @app.post("/v1/invoices/{invoice_id}/status/{status}", response_model=Invoice)
 async def transition_invoice(invoice_id: UUID, status: InvoiceStatus) -> Invoice:
-    invoice = load_invoice(invoice_id)
+    invoice = await load_invoice(invoice_id)
     if invoice is None:
         raise HTTPException(status_code=404, detail="Invoice not found")
     invoice.status = status
     if status == InvoiceStatus.PAID:
         invoice.paid_at = datetime.now(timezone.utc)
-    save_invoice(invoice)
+    await save_invoice(invoice)
     return invoice
 
 
@@ -259,7 +259,7 @@ async def transition_invoice(invoice_id: UUID, status: InvoiceStatus) -> Invoice
 @app.post("/v1/jobs", response_model=Job, status_code=201)
 async def create_job(request: JobCreate) -> Job:
     job = Job(vehicle=request.vehicle, concern=request.concern)
-    save_job(job)
+    await save_job(job)
     return job
 
 
@@ -270,7 +270,7 @@ async def jobs() -> list[Job]:
 
 @app.get("/v1/jobs/{job_id}", response_model=Job)
 async def get_job(job_id: UUID) -> Job:
-    job = load_job(job_id)
+    job = await load_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return job

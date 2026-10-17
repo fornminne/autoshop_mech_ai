@@ -8,7 +8,8 @@ Clean-room automotive diagnostic and shop-assistant platform inspired by profess
 - NHTSA recall lookup by year/make/model
 - Gemini diagnostic reasoning using the current `google-genai` SDK
 - Safe stub fallback when no AI credential is configured
-- Persistent SQLite repair jobs
+- Persistent shop data in Supabase Postgres (customers, vehicles, repair
+  orders, estimate lines, OBD scans, invoices)
 - FastAPI/OpenAPI backend
 - Android Kotlin/Jetpack Compose client
 - VIN entry and decode flow
@@ -28,7 +29,7 @@ Android App
 FastAPI Backend
    |-- NHTSA VIN + Recalls
    |-- Gemini Diagnostic Engine
-   |-- SQLite Shop Jobs
+   |-- Supabase Postgres shop data
    |-- Service Data / RAG adapters (next)
    `-- OEM/licensed data adapters (next)
 ```
@@ -44,6 +45,8 @@ uvicorn app.main:app --reload
 ```
 
 Set `GEMINI_API_KEY` in `.env` to enable Gemini. Without a key, diagnostic requests use a deterministic safe fallback instead of fabricating service information.
+
+Shop data is stored in the project's Supabase Postgres database. Connection details (`SUPABASE_URL`, `SUPABASE_ANON_KEY`) are pre-populated in `.env`; the schema is managed with Supabase migrations and row level security is enabled on every table.
 
 Open `http://127.0.0.1:8000/docs` for interactive API documentation.
 
